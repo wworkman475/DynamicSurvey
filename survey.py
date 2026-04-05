@@ -1,7 +1,27 @@
 from flask import Flask, render_template_string, request, redirect, url_for, session
+import sqlite3
 
 app = Flask(__name__)
 app.secret_key = "secret-key"
+
+import sqlite3
+
+def save_to_db(answers):
+    conn = sqlite3.connect('survey.db')
+    c = conn.cursor()
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS responses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            answers TEXT
+        )
+    ''')
+
+    c.execute('INSERT INTO responses (answers) VALUES (?)', (str(answers),))
+    conn.commit()
+    conn.close()
+    
+    
 
 # Survey definition with branching logic
 SURVEY = {
@@ -82,6 +102,9 @@ def survey():
 @app.route('/result')
 def result():
     answers = session.get('answers', {})
+
+    save_to_db(answers)  # 👈 save here
+
     return f"""
     <h2>Survey Complete</h2>
     <pre>{answers}</pre>
@@ -95,4 +118,14 @@ def restart():
     return redirect(url_for('survey'))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=10000)
+    
+#admin route    
+@app.route('/admin')
+def admin():
+    conn = sqlite3.connect('survey.db')
+    c = conn.cursor()
+    rows = c.execute('SELECT * FROM responses').fetchall()
+    conn.close()
+
+    return f"<pre>{rows}</pre>"
