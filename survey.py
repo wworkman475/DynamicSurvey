@@ -1,10 +1,21 @@
 from flask import Flask, render_template_string, request, redirect, url_for, session
-import sqlite3
+from supabase import create_client, Client
+import os
 
 app = Flask(__name__)
 app.secret_key = "secret-key"
 
-# Survey definition with branching logic
+# -------------------------
+# SUPABASE CONFIG
+# -------------------------
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# -------------------------
+# Survey definition
+# -------------------------
 SURVEY = {
     "q1": {
         "question": "Do you own a car?",
@@ -34,22 +45,18 @@ SURVEY = {
     }
 }
 
-# Save responses to SQLite
+# -------------------------
+# Save to Supabase
+# -------------------------
 def save_to_db(answers):
-    conn = sqlite3.connect('survey.db')
-    c = conn.cursor()
+    data = {
+        "answers": answers
+    }
+    supabase.table("responses").insert(data).execute()
 
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS responses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            answers TEXT
-        )
-    ''')
-
-    c.execute('INSERT INTO responses (answers) VALUES (?)', (str(answers),))
-    conn.commit()
-    conn.close()
-
+# -------------------------
+# HTML Template
+# -------------------------
 TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -79,6 +86,9 @@ TEMPLATE = """
 </html>
 """
 
+# -------------------------
+# Routes
+# -------------------------
 @app.route('/', methods=['GET', 'POST'])
 def survey():
     if 'current_q' not in session:
@@ -89,7 +99,7 @@ def survey():
     question_data = SURVEY[current_q]
 
     if request.method == 'POST':
-        # Handle final submission
+        # Final submit
         if 'submit' in request.form:
             save_to_db(session['answers'])
             return redirect(url_for('result'))
@@ -97,7 +107,6 @@ def survey():
         answer = request.form['answer']
         session['answers'][current_q] = answer
 
-        # Determine next question
         next_q = question_data['options'].get(answer)
 
         if next_q:
@@ -107,10 +116,12 @@ def survey():
 
         return redirect(url_for('survey'))
 
-    return render_template_string(TEMPLATE,
-                                  question=question_data['question'],
-                                  options=question_data['options'].keys(),
-                                  answers=session.get('answers'))
+    return render_template_string(
+        TEMPLATE,
+        question=question_data['question'],
+        options=question_data['options'].keys(),
+        answers=session.get('answers')
+    )
 
 @app.route('/result')
 def result():
@@ -119,21 +130,19 @@ def result():
     <a href='/restart'>Take again</a>
     """
 
-# Restart route
 @app.route('/restart')
 def restart():
     session.clear()
     return redirect(url_for('survey'))
 
-# Admin route to view responses
+# Optional admin view (pull from Supabase)
 @app.route('/admin')
 def admin():
-    conn = sqlite3.connect('survey.db')
-    c = conn.cursor()
-    rows = c.execute('SELECT * FROM responses').fetchall()
-    conn.close()
+    response = supabase.table("responses").select("*").execute()
+    return f"<pre>{response.data}</pre>"
 
-    return f"<pre>{rows}</pre>"
-
+# -------------------------
+# Run app
+# -------------------------
 if __name__ == '__main__':
     app.run(debug=True)
